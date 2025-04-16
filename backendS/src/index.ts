@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
-const wss = new WebSocketServer({ port: 3000,host:"0.0.0.0" });
+const wss = new WebSocketServer({ port: 3000,host:"10.9.6.154" });
 type PeerT = Record<string, WebSocket>;
 const peers: PeerT = {};
 

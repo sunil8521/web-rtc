@@ -1,32 +1,37 @@
 import React, { useState, useEffect, useRef, useContext, use } from "react";
 import Use from "../Use";
-
+import toast from "react-hot-toast";
 const Both: React.FC = () => {
   const { socket } = useContext(Use);
   const [peerId, setPeerId] = useState<string | null>(null);
   const [isSender, setIsSender] = useState(false);
-  const peer = useRef<RTCPeerConnection>(new RTCPeerConnection(
-    {
+
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadComplete, setUploadComplete] = useState<boolean>(false);
+
+  const peer = useRef<RTCPeerConnection>(
+    new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         {
           urls: "turn:64.227.129.105:3478",
           username: "sunil",
           credential: "yourpassword123",
-        } 
+        },
       ],
-    }
-
-  ));
+    })
+  );
   const dataChannel = useRef<RTCDataChannel | null>(null);
   const file = useRef<File | null>(null);
-  const iceQueue = useRef<RTCIceCandidateInit[]>([]); 
-  const reciveSizeRef = useRef<number>(0); 
+  const iceQueue = useRef<RTCIceCandidateInit[]>([]);
+  const reciveSizeRef = useRef<number>(0);
   const reciveArry = useRef<ArrayBuffer[]>([]);
-
-  const reciveFile = useRef<HTMLAnchorElement[]>([]);
-console.log(peerId)
-
+  const [showFile, setShowFile] = useState<File | null>(null);
+  const [reciveFile,setReciveFile]=useState<{
+    href: string;
+    name: string;
+  }[]>([])
   const fileDetails = useRef<{
     name: string;
     size: number;
@@ -38,14 +43,10 @@ console.log(peerId)
 
   useEffect(() => {
     if (!socket) return;
-
     peer.current.ondatachannel = (event) => {
       const receiveChannel = event.channel;
-
       receiveChannel.onmessage = (event) => {
-        
-        reciveSizeRef.current =
-          reciveSizeRef.current + event.data.byteLength;
+        reciveSizeRef.current = reciveSizeRef.current + event.data.byteLength;
         console.log("reciveSizeRef", reciveSizeRef.current);
         reciveArry.current.push(event.data);
 
@@ -53,13 +54,16 @@ console.log(peerId)
           const received = new Blob(reciveArry.current);
           const download = URL.createObjectURL(received);
 
-          const anchor = document.createElement("a");
-          anchor.href = download;
-          anchor.download = fileDetails.current?.name;
-          anchor.textContent = fileDetails.current?.name;
-          document.querySelector("#containerRef")?.appendChild(anchor);
-          reciveSizeRef.current = 0; // Reset the size for the next file
-          reciveArry.current = []; // Reset the array for the next file
+          // const anchor = document.createElement("a");
+          // anchor.href = download;
+          // anchor.download = fileDetails.current?.name;
+          // anchor.textContent = fileDetails.current?.name;
+          // document.querySelector("#containerRef")?.appendChild(anchor);
+
+          setReciveFile((e)=>[...e,{href:download,name:fileDetails.current?.name as string}])
+
+          reciveSizeRef.current = 0;
+          reciveArry.current = [];
         }
       };
 
@@ -74,16 +78,13 @@ console.log(peerId)
         console.log("Receive channel closed");
       };
     };
+
     socket.onmessage = async (event: MessageEvent) => {
       const message = JSON.parse(event.data);
 
       if (message.type === "ready") {
-
-        console.log("Peer is ready to connect:", message.peerId);
+        // console.log("Peer is ready to connect:", message.peerId);
         setPeerId(message.peerId);
-
-
-
       } else if (message.type === "offer") {
         peer.current.onicecandidate = (event) => {
           if (event.candidate) {
@@ -96,8 +97,6 @@ console.log(peerId)
             );
           }
         };
-
-
 
         await peer.current.setRemoteDescription(message.offer);
 
@@ -116,7 +115,7 @@ console.log(peerId)
         });
         iceQueue.current = [];
       } else if (message.type === "ice-candidate") {
-        console.log("Received ICE candidate from" , message.to);
+        console.log("Received ICE candidate from", message.to);
 
         if (peer.current.remoteDescription) {
           // console.log("add ice candidate to peer");
@@ -127,12 +126,10 @@ console.log(peerId)
         }
       } else if (message.type === "file-details") {
         fileDetails.current = message.details;
-        console.log("File details:", fileDetails.current);
+        // console.log("File details:", fileDetails.current);
       }
     };
   }, [socket]);
-
-
 
   const setupDataChannel = () => {
     if (!dataChannel.current) return;
@@ -151,15 +148,12 @@ console.log(peerId)
     };
   };
 
-
-
   const selectFile = async (selectedFile: File) => {
-    console.log(peerId)
     if (!peerId) {
-      console.error("No peer available to send file.");
+      toast.error("There is no other peer to send");
+
       return;
     }
-
     file.current = selectedFile;
     socket.send(
       JSON.stringify({
@@ -191,7 +185,7 @@ console.log(peerId)
           JSON.stringify({
             type: "ice-candidate",
             candidate: event.candidate,
-            to: peerId, 
+            to: peerId,
           })
         );
       }
@@ -208,8 +202,12 @@ console.log(peerId)
     }
   };
 
-  const sendFileHandle = async () => {  //!send file
+  const sendFileHandle = async () => {
+    //!send file
     if (!file.current || !dataChannel.current) return;
+
+    setIsUploading(true);
+    setUploadProgress(0);
     console.log(
       `File is ${[
         file.current.name,
@@ -219,46 +217,51 @@ console.log(peerId)
       ].join(" ")}`
     );
     const chunkSize = 16 * 1024;
-    dataChannel.current.bufferedAmountLowThreshold=64*1024
+    dataChannel.current.bufferedAmountLowThreshold = 64 * 1024;
 
     const reader = new FileReader();
     let offset = 0;
     reader.onabort = (event) => console.log("File reading aborted:", event);
     reader.onerror = (er) => console.error("Error reading file:", er);
 
-    reader.onload = async(e) => {
+    reader.onload = async (e) => {
       if (e.target?.result && dataChannel.current?.readyState === "open") {
-  
-        if (dataChannel.current.bufferedAmount > dataChannel.current.bufferedAmountLowThreshold) {
-                await new Promise<void>((res) => {
-                  const handler = () => {
-                    dataChannel.current?.removeEventListener("bufferedamountlow", handler);
-                    res();
-                  };
-                  dataChannel.current?.addEventListener("bufferedamountlow", handler);
-                });
-              }
-
+        if (
+          dataChannel.current.bufferedAmount >
+          dataChannel.current.bufferedAmountLowThreshold
+        ) {
+          await new Promise<void>((res) => {
+            const handler = () => {
+              dataChannel.current?.removeEventListener(
+                "bufferedamountlow",
+                handler
+              );
+              res();
+            };
+            dataChannel.current?.addEventListener("bufferedamountlow", handler);
+          });
+        }
         dataChannel.current.send(e.target.result); // Indicate file transfer is complete
-        console.log("Sent chunk:", offset, e.target.result.byteLength);
+        console.log("Sent chunk:", e.target.result.byteLength);
         offset += e.target.result.byteLength;
-
+        setUploadProgress(Math.floor((offset / file.current.size) * 100));
         if (offset < file.current.size) {
           readSlice(offset);
         } else {
-          
           selectedFile.current!.value = "";
-          file.current = null; 
-          console.log("File transfer complete!");
+          file.current = null;
+          setShowFile(null);
+          console.log("File transfer complete!🚀");
           if (dataChannel.current) {
             dataChannel.current.close();
             dataChannel.current = null;
             setIsSender(false);
+            setIsUploading(false);
+            setUploadComplete(true);
           }
         }
       }
-    };//end onload
-
+    }; //end onload
 
     const readSlice = (o: number) => {
       const slice = file.current?.slice(offset, o + chunkSize);
@@ -266,17 +269,17 @@ console.log(peerId)
     };
     readSlice(0);
   };
- 
+
   // const sendFileHandle = async () => {
   //   if (!file.current || !dataChannel.current) return;
-  
+
   //   const dc = dataChannel.current;
-  //   const chunkSize = 16 * 1024; 
+  //   const chunkSize = 16 * 1024;
   //   const fileBlob = file.current;
   //   let offset = 0;
-  
+
   //   dc.bufferedAmountLowThreshold = 64 * 1024;
-  
+
   //   const readSlice = (blob: Blob): Promise<ArrayBuffer> => {
   //     return new Promise((resolve, reject) => {
   //       const reader = new FileReader();
@@ -286,11 +289,11 @@ console.log(peerId)
   //       reader.readAsArrayBuffer(blob);
   //     });
   //   };
-  
+
   //   while (offset < fileBlob.size) {
   //     const slice = fileBlob.slice(offset, offset + chunkSize);
   //     const chunk = await readSlice(slice);
-  
+
   //     if (dc.bufferedAmount > dc.bufferedAmountLowThreshold) {
   //       await new Promise<void>((res) => {
   //         const handler = () => {
@@ -300,63 +303,184 @@ console.log(peerId)
   //         dc.addEventListener("bufferedamountlow", handler);
   //       });
   //     }
-  
+
   //     try {
   //       dc.send(chunk);
   //     } catch (err) {
   //       console.error("Send failed:", err);
   //       break;
   //     }
-  
+
   //     offset += chunkSize;
   //   }
-  
+
   //   console.log("✅ File sent successfully!");
   //   selectedFile.current!.value = "";
   //   file.current = null;
-  
+
   //   if (dc) {
   //     dc.close();
   //     dataChannel.current = null;
   //     setIsSender(false);
   //   }
   // };
-  
 
   return (
-    <div className="p-4 bg-gray-100 rounded-lg shadow-md max-w-md mx-auto">
-      <h2 className="text-lg font-bold mb-2">WebRTC File Sharing</h2>
+    <div className="min-h-screen flex items-center justify-center bg-[#111111] p-4 font-sans">
+      <div className="w-full max-w-md bg-[#161616] rounded-xl p-8 space-y-8">
+        <h1 className="text-[#f2f2f2] text-xl font-light tracking-wide text-center">
+          File Transfer
+        </h1>
 
-      <input
-        ref={selectedFile}
-        type="file"
-        onChange={(e) => {
-          const selected = e.target.files?.[0];
-          if (selected) selectFile(selected);
-        }}        className="border p-2 rounded w-full"
-      />
-      <button
-        onClick={sendFileHandle}
-        disabled={!file.current}
-        className="mt-2 bg-blue-500 text-white px-4 py-2 rounded disabled:opacity-50"
-      >
-        {file.current ? "Send" : "No file selected"}
-      </button>
-      {reciveFile.current.map((item, index) => {
-        return (
-          <div key={index}>
-            <a href={item.href} download={item.download}>
-              {item.textContent}
-            </a>
+        <div
+          onClick={() => selectedFile.current?.click()}
+          className={`
+            relative h-40 flex flex-col items-center justify-center rounded-lg transition-all duration-300
+            ${
+              file.current
+                ? "bg-[#1e1e1e] border-[#2a2a2a] border"
+                : "bg-gradient-to-b from-[#1a1a1a] to-[#161616] border-dashed border-[#2a2a2a] border-2"
+            }
+            cursor-pointer hover:bg-[#1a1a1a]
+          `}
+        >
+          <input
+            type="file"
+            ref={selectedFile}
+            onChange={(e) => {
+              const selected = e.target.files?.[0];
+              if (selected) {
+                selectFile(selected);
+                setShowFile(selected);
+                setUploadProgress(0);
+                setUploadComplete(false);
+              }
+            }}
+            className="hidden"
+          />
+
+          {showFile ? (
+            <div className="text-center px-4">
+              <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-[#2a2a2a] flex items-center justify-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-[#f2f2f2]"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+              </div>
+              <p className="text-[#f2f2f2] font-medium text-sm  max-w-[90%] mx-auto">
+                {showFile.name}
+              </p>
+              <p className="text-[#888888] text-xs mt-1">
+                {(showFile.size / 1024 / 1024).toFixed(2)} MB
+              </p>
+            </div>
+          ) : (
+            <div className="text-center px-4">
+              <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-[#2a2a2a] flex items-center justify-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-[#888888]"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+              </div>
+
+              <p className="text-[#f2f2f2] font-medium text-sm">
+                Select a file
+              </p>
+              <p className="text-[#888888] text-xs mt-1">
+                Click to browse your files
+              </p>
+            </div>
+          )}
+        </div>
+
+        {(isUploading || uploadComplete) && (
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-[#888888] text-xs">Progress</span>
+              <span className="text-[#f2f2f2] text-xs font-medium">
+                {uploadProgress}%
+              </span>
+            </div>
+            <div className="h-1 bg-[#2a2a2a] rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 ease-out ${
+                  uploadComplete ? "bg-[#4ade80]" : "bg-[#3b82f6]"
+                }`}
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
+            </div>
           </div>
-        );
-      })}
-      {/* <a ref={Click}>wait</a> */}
+        )}
 
-      <div
-        style={{ display: "flex", flexDirection: "column" }}
-        id="containerRef"
-      ></div>
+        <div className="flex gap-3">
+          <button
+            onClick={sendFileHandle}
+            disabled={!showFile}
+            className="flex-1 bg-[#3b82f6] text-white py-3 rounded-lg text-sm font-medium transition-all 
+                disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#2563eb] focus:outline-none
+                focus:ring-2 focus:ring-[#3b82f6] focus:ring-opacity-50"
+          >
+            {isUploading ? "Sending..." : "Send File"}
+          </button>
+        </div>
+
+
+        <div
+          id="containerRef"
+          className="w-full max-w-md mx-auto mt-6 p-4 rounded-2xl shadow-lg bg-white dark:bg-zinc-900"
+        >
+          {/* Heading */}
+          <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100 mb-4">
+            Received Files
+          </h2>
+
+
+          {reciveFile.map((item, index) => {
+          return (
+            <div key={index} className="flex items-center justify-between bg-zinc-100 dark:bg-zinc-800 p-4 rounded-xl my-3">
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate w-3/4">
+                {item.name}
+              </span>
+
+              <a
+                className="text-blue-600 dark:text-blue-400 text-sm font-semibold hover:underline"
+                href={item.href}
+                download={item.name}
+              >
+                download
+              </a>
+            </div>
+          );
+        })}
+
+        </div>
+      </div>
     </div>
   );
 };

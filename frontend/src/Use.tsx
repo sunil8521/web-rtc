@@ -1,16 +1,15 @@
 import { useContext, useEffect, useState, ReactNode } from "react";
 import { createContext } from "react";
 
+
 const Use = createContext<WebSocket | null>(null);
-
-
 
 export default Use;
 
 export const UseProvider = ({ children }: { children: ReactNode }) => {
   const [socket, setSocket] = useState<WebSocket | null>(null);
   useEffect(() => {
-    const ws = new WebSocket("ws://10.9.4.118:3000");
+    const ws = new WebSocket(import.meta.env.VITE_WS as string);
     setSocket(ws);
 
     ws.onopen = () => {

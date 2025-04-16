@@ -1,23 +1,12 @@
-import "./App.css";
-import { Route, BrowserRouter, Routes } from "react-router-dom";
-
-import { Link } from "react-router-dom";
+import { Route, BrowserRouter, Routes,Navigate } from "react-router-dom";
 import Both from "./components/Both";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/both" element={<Both />} />
-        <Route
-          path="/"
-          element={
-            <div style={{ display: "flex", gap: "10px" }}>
-              {" "}
-              <Link to={"/both"}>both</Link>
-            </div>
-          }
-        />
+        <Route path="/" element={<Both />} />
+        <Route path="*" element={<Navigate to={"/"}/>}/>
       </Routes>
     </BrowserRouter>
   );
