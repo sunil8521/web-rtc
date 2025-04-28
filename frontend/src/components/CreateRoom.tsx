@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom"; // important for redirect
 import toast from "react-hot-toast";
-import { generateUserId, generateRoomIdWithLetters } from "../utils/generator";
+import {  generateRoomIdWithLetters } from "../utils/generator";
 import {useAtomValue} from "jotai"
 import {socketAtom} from "../socket"
 
@@ -12,7 +12,7 @@ const socket = useAtomValue(socketAtom)
   const [roomCode, setRoomCode] = useState("");
 
   const navigate = useNavigate();
-  const userId=generateUserId()
+  // const userId=generateUserId()
 
   useEffect(() => {
     if (!socket) return;

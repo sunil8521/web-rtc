@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
-import {useAtomValue} from "jotai"
-import {socketAtom} from "../socket"
-import { generateUserId } from "../utils/generator";
+import { useAtomValue } from "jotai";
+import { socketAtom } from "../socket";
+import { getUserId, clearUserId } from "../utils/generator";
 
-import { useParams } from 'react-router-dom';
+import { useParams } from "react-router-dom";
 import { useNavigate } from "react-router-dom"; // important for redirect
 
 const Both: React.FC = () => {
-  const socket = useAtomValue(socketAtom)
+  const socket = useAtomValue(socketAtom);
   const { ROOMID } = useParams<{ ROOMID: string }>();
 
-  
   const [peerId, setPeerId] = useState<string | null>(null);
   const [isSender, setIsSender] = useState(false);
 
@@ -19,28 +18,33 @@ const Both: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [uploadComplete, setUploadComplete] = useState<boolean>(false);
 
-  const peer = useRef<RTCPeerConnection>(
-    new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        {
-          urls: "turn:64.227.129.105:3478",
-          username: "sunil",
-          credential: "yourpassword123",
-        },
-      ],
-    })
-  );
+  // const peer = useRef<RTCPeerConnection>(
+  //   new RTCPeerConnection({
+  //     iceServers: [
+  //       { urls: "stun:stun.l.google.com:19302" },
+  //       {
+  //         urls: "turn:64.227.129.105:3478",
+  //         username: "sunil",
+  //         credential: "yourpassword123",
+  //       },
+  //     ],
+  //   })
+  // );
+  const peer = useRef<RTCPeerConnection | null>(null);
+
+
   const dataChannel = useRef<RTCDataChannel | null>(null);
   const file = useRef<File | null>(null);
   const iceQueue = useRef<RTCIceCandidateInit[]>([]);
   const reciveSizeRef = useRef<number>(0);
   const reciveArry = useRef<ArrayBuffer[]>([]);
   const [showFile, setShowFile] = useState<File | null>(null);
-  const [reciveFile,setReciveFile]=useState<{
-    href: string;
-    name: string;
-  }[]>([])
+  const [reciveFile, setReciveFile] = useState<
+    {
+      href: string;
+      name: string;
+    }[]
+  >([]);
   const fileDetails = useRef<{
     name: string;
     size: number;
@@ -51,74 +55,126 @@ const Both: React.FC = () => {
 
   const selectedFile = useRef<HTMLInputElement | null>(null);
 
-  const [myId] = useState(() => generateUserId());
-console.log(myId)
-
-useEffect(() => {
-  if (!socket || !ROOMID) return;
-
-  const payload = {
-    type: "add-me",
-    roomId: ROOMID,
-    userId: myId,
-  };
-  socket.onmessage = async (event: MessageEvent) => {
-    const message = JSON.parse(event.data);
-if(message.type === "join-error") {
-toast.error(message.errorMessage)
-navigate("/")
-return;
-}
-  }
-  const trySendJoin = () => {
-    try {
-      socket.send(JSON.stringify(payload));
-    } catch (err) {
-      console.error("Failed to send join-room:", err);
-    }
-  };
-
-  // If already open, send immediately…
-  if (socket.readyState === WebSocket.OPEN) {
-    trySendJoin();
-  } else {
-    // …otherwise wait for the "open" event
-    const onOpen = () => {
-      trySendJoin();
-      socket.removeEventListener("open", onOpen);
-    };
-    socket.addEventListener("open", onOpen);
-  }
-
-  // you can still return your old cleanup:
-  return () => {
-    socket.send(
-      JSON.stringify({
-        type: "leave-room",
-        roomId: ROOMID,
-        userId: myId,
-      })
-    );
-  };
-}, [socket, ROOMID, myId]);
-
-
+  const myId = getUserId();
+  // console.log("myId", myId);
 
 
   useEffect(() => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        {
+          urls: "turn:64.227.129.105:3478",
+          username: "sunil",
+          credential: "yourpassword123",
+        },
+      ],
+    });
+    peer.current = pc;
+
+    // send every ice candidate
+    // pc.onicecandidate = (evt) => {
+    //   if (evt.candidate && peerId) {
+    //     socket.send(
+    //       JSON.stringify({
+    //         type: "ice-candidate",
+    //         candidate: evt.candidate,
+    //         to: peerId,
+    //         roomId: ROOMID,
+    //       })
+    //     );
+    //   }
+    // };
+
+    // cleanup: close pc + datachannel
+    return () => {
+      pc.close();
+      dataChannel.current?.close();
+      dataChannel.current = null;
+      peer.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!socket || !ROOMID) return;
+
+    const payload = {
+      type: "add-me",
+      roomId: ROOMID,
+      userId: myId,
+    };
+
+    const trySendJoin = () => {
+      try {
+        socket.send(JSON.stringify(payload));
+        socket.onmessage = async (event: MessageEvent) => {
+          const message = JSON.parse(event.data);
+          if (message.type === "join-error") {
+            toast.error(message.errorMessage);
+            navigate("/");
+            return;
+          }
+        };
+      } catch (err) {
+        console.error("Failed to send join-room:", err);
+      }
+    };
+
+    // If already open, send immediately…
+    if (socket.readyState === WebSocket.OPEN) {
+      trySendJoin();
+    } else {
+      // …otherwise wait for the "open" event
+      const onOpen = () => {
+        trySendJoin();
+        socket.removeEventListener("open", onOpen);
+      };
+      socket.addEventListener("open", onOpen);
+    }
+
+    // you can still return your old cleanup:
+    return () => {
+      socket.send(
+        JSON.stringify({
+          type: "leave-room",
+          roomId: ROOMID,
+          userId: myId,
+        })
+      );
+      clearUserId();
+//       peer.current.close();
+// peer.current.onicecandidate = null;
+
+    };
+  }, [socket, ROOMID, myId, navigate]);
+
+  useEffect(() => {
     if (!socket) return;
-
- 
-
-
-
+    if (!peer.current) return;
+// peer.current.onClose
 
     peer.current.ondatachannel = (event) => {
       const receiveChannel = event.channel;
-      receiveChannel.onmessage = (event) => {
-        reciveSizeRef.current = reciveSizeRef.current + event.data.byteLength;
+
+      receiveChannel.binaryType = "arraybuffer";
+
+      receiveChannel.onmessage = async(event) => {
+
+        let buf: ArrayBuffer;
+        if (event.data instanceof Blob) {
+          buf = await event.data.arrayBuffer();
+        } else {
+          buf = event.data;
+        }
+
+
+
+        reciveSizeRef.current = reciveSizeRef.current + buf.byteLength;
         console.log("reciveSizeRef", reciveSizeRef.current);
-        reciveArry.current.push(event.data);
+
+
+
+        reciveArry.current.push(buf);
 
         if (reciveSizeRef.current == fileDetails.current?.size) {
           const received = new Blob(reciveArry.current);
@@ -130,7 +186,10 @@ return;
           // anchor.textContent = fileDetails.current?.name;
           // document.querySelector("#containerRef")?.appendChild(anchor);
 
-          setReciveFile((e)=>[...e,{href:download,name:fileDetails.current?.name as string}])
+          setReciveFile((e) => [
+            ...e,
+            { href: download, name: fileDetails.current?.name as string },
+          ]);
 
           reciveSizeRef.current = 0;
           reciveArry.current = [];
@@ -149,24 +208,19 @@ return;
       };
     };
 
-
-
     socket.onmessage = async (event: MessageEvent) => {
       const message = JSON.parse(event.data);
-if(message.type === "join-error") {
-toast.error(message.errorMessage)
-navigate("/")
-return;
-}
 
       if (message.type === "ready") {
-        // console.log("Peer is ready to connect:", message.peerId);
+        console.log("Peer is ready to connect:", message.peerId);
         setPeerId(message.peerId);
       } else if (message.type === "offer") {
+
         peer.current.onicecandidate = (event) => {
           if (event.candidate) {
             socket.send(
               JSON.stringify({
+                roomId: ROOMID,
                 type: "ice-candidate",
                 candidate: event.candidate,
                 to: message.to,
@@ -181,7 +235,14 @@ return;
         await peer.current.setLocalDescription(answer);
 
         console.log("Sending answer to", message.to);
-        socket.send(JSON.stringify({ type: "answer", answer, to: message.to }));
+        socket.send(
+          JSON.stringify({
+            roomId: ROOMID,
+            type: "answer",
+            answer,
+            to: message.to,
+          })
+        );
       } else if (message.type === "answer") {
         console.log("Received answer from", message.to);
         await peer.current.setRemoteDescription(message.answer);
@@ -206,7 +267,6 @@ return;
         // console.log("File details:", fileDetails.current);
       }
     };
-   
   }, [socket]);
 
   const setupDataChannel = () => {
@@ -233,9 +293,10 @@ return;
       return;
     }
     file.current = selectedFile;
-    socket.send(
+    socket!.send(
       JSON.stringify({
         type: "file-details",
+        roomId: ROOMID,
         details: {
           name: selectedFile.name,
           size: selectedFile.size,
@@ -259,8 +320,9 @@ return;
 
     peer.current.onicecandidate = (event) => {
       if (event.candidate) {
-        socket.send(
+        socket!.send(
           JSON.stringify({
+            roomId: ROOMID,
             type: "ice-candidate",
             candidate: event.candidate,
             to: peerId,
@@ -273,7 +335,9 @@ return;
     try {
       const offer = await peer.current.createOffer();
       await peer.current.setLocalDescription(offer);
-      socket.send(JSON.stringify({ type: "offer", offer, to: peerId }));
+      socket!.send(
+        JSON.stringify({ roomId: ROOMID, type: "offer", offer, to: peerId })
+      );
       console.log("Sending offer to", peerId);
     } catch (er) {
       console.log("Failed to create session description: ", er);
@@ -331,6 +395,7 @@ return;
           setShowFile(null);
           console.log("File transfer complete!🚀");
           if (dataChannel.current) {
+            // peer.current.onicecandidate = null;
             dataChannel.current.close();
             dataChannel.current = null;
             setIsSender(false);
@@ -405,6 +470,15 @@ return;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#111111] p-4 font-sans">
+      <div className="absolute top-4 left-4 space-y-1">
+        <p className="text-sm text-gray-400">Room ID:</p>
+        <p className="text-lg font-bold text-gray-200 break-all">{ROOMID}</p>
+        <p className="text-xs text-gray-500">
+          Copy and share this <strong>ID</strong> with your peer to start file
+          transfer.
+        </p>
+      </div>
+
       <div className="w-full max-w-md bg-[#161616] rounded-xl p-8 space-y-8">
         <h1 className="text-[#f2f2f2] text-xl font-light tracking-wide text-center">
           File Transfer
@@ -528,7 +602,6 @@ return;
           </button>
         </div>
 
-
         <div
           id="containerRef"
           className="w-full max-w-md mx-auto mt-6 p-4 rounded-2xl shadow-lg bg-white dark:bg-zinc-900"
@@ -538,25 +611,26 @@ return;
             Received Files
           </h2>
 
-
           {reciveFile.map((item, index) => {
-          return (
-            <div key={index} className="flex items-center justify-between bg-zinc-100 dark:bg-zinc-800 p-4 rounded-xl my-3">
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate w-3/4">
-                {item.name}
-              </span>
-
-              <a
-                className="text-blue-600 dark:text-blue-400 text-sm font-semibold hover:underline"
-                href={item.href}
-                download={item.name}
+            return (
+              <div
+                key={index}
+                className="flex items-center justify-between bg-zinc-100 dark:bg-zinc-800 p-4 rounded-xl my-3"
               >
-                download
-              </a>
-            </div>
-          );
-        })}
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate w-3/4">
+                  {item.name}
+                </span>
 
+                <a
+                  className="text-blue-600 dark:text-blue-400 text-sm font-semibold hover:underline"
+                  href={item.href}
+                  download={item.name}
+                >
+                  download
+                </a>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

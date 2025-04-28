@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 const wss = new WebSocketServer({ port: 3000 });
 
-type PeerT = Record<string, string>;
+type PeerT = Record<string, WebSocket>;
 
 // type peers = {[string]:PeerT};
 const rooms: Map<string, PeerT> = new Map();
@@ -15,7 +15,7 @@ wss.on("connection", (ws: WebSocket) => {
     if (data.type == "create-room") {
       // userId = data.userId;
       // rooms.set(data.roomId, { [userId!]: ws });
-      rooms.set(data.roomId, { });
+      rooms.set(data.roomId, {});
       ws.send(
         JSON.stringify({
           type: "join-success",
@@ -28,9 +28,8 @@ wss.on("connection", (ws: WebSocket) => {
 
       if (rooms.has(data.roomId)) {
         const room = rooms.get(data.roomId);
-
         if (room) {
-          if ( Object.keys(room).length > 2) {
+          if (Object.keys(room).length == 2) {
             ws.send(
               JSON.stringify({
                 type: "join-error",
@@ -38,7 +37,6 @@ wss.on("connection", (ws: WebSocket) => {
               })
             );
           } else {
-            console.log(data);
 
             // room[userId!] = ws;
             ws.send(
@@ -58,47 +56,63 @@ wss.on("connection", (ws: WebSocket) => {
         );
       }
     } else if (data.type === "add-me") {
-    if(!rooms.has(data.roomId)){
-      ws.send(
-        JSON.stringify({
-          type: "join-error",
-          errorMessage: "Room not found.",
-        })
-      );
-    }else{
-      const room = rooms.get(data.roomId);
-
-      if (Object.keys(room!).length >= 2) {
+      if (!rooms.has(data.roomId)) {
         ws.send(
           JSON.stringify({
             type: "join-error",
-            errorMessage: "Room is full. Cannot join more than 2 users.",
+            errorMessage: "Room not found.",
           })
         );
-      }else{
-        
+      } else {
+        const room = rooms.get(data.roomId);
+
+        if (Object.keys(room!).length >= 2) {
+          ws.send(
+            JSON.stringify({
+              type: "join-error",
+              errorMessage: "Room is full. Cannot join more than 2 users.",
+            })
+          );
+        } else {
+
+          if (room![data.userId]) {
+            delete room![data.userId];
+          }
+          userId = data.userId;
+          room![data.userId] = ws;
+
+          const updatedIds = Object.keys(room!);
+          if (updatedIds.length === 2) {
+            updatedIds.forEach((id) => {
+              const otherId = updatedIds.find((x) => x !== id)!;
+              room![id].send(JSON.stringify({
+                type: "ready",
+                peerId: otherId
+              }));
+            });
+          }
+
+
+        }
       }
+
+    
+    } else if (data.type === "leave-room") {
+      if(rooms.has(data.roomId)) {
+
+
+        const room = rooms.get(data.roomId);
+        if (room![data.userId]) {
+          delete room![data.userId];
+        }
+      }
+    } 
+    else if (["offer", "answer", "ice-candidate","file-details"].includes(data.type)) {
+      rooms.get(data.roomId)![data.to].send(JSON.stringify({ ...data, to: userId }));
     }
 
-
-
-
-
-      // room![data.userId!] = "ws";
-      // console.log(room);
-      
-     
-      
-
-    }else if (data.type === "leave-room") {
-      const room = rooms.get(data.roomId);
-      
-    //  console.log(room)
-    }
-
-    if (data.type === "join") {
-      userId = data.id;
-      // console.log("User joined with id: ", userId);
+    // if (data.type === "join") {
+    //   userId = data.id;
       // peers[userId!] = ws;
 
       // const peerIds = Object.keys(peers);
@@ -114,7 +128,7 @@ wss.on("connection", (ws: WebSocket) => {
       //   }
       // } else if (["offer", "answer", "ice-candidate","file-details"].includes(data.type)) {
       //   peers[data.to].send(JSON.stringify({ ...data, to: userId }));
-    }
+    // }
   });
 
   ws.on("close", () => {
