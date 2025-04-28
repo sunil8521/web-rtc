@@ -1,8 +1,17 @@
-import React, { useState, useEffect, useRef, useContext, use } from "react";
-import Use from "../Use";
+import React, { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
+import {useAtomValue} from "jotai"
+import {socketAtom} from "../socket"
+import { generateUserId } from "../utils/generator";
+
+import { useParams } from 'react-router-dom';
+import { useNavigate } from "react-router-dom"; // important for redirect
+
 const Both: React.FC = () => {
-  const { socket } = useContext(Use);
+  const socket = useAtomValue(socketAtom)
+  const { ROOMID } = useParams<{ ROOMID: string }>();
+
+  
   const [peerId, setPeerId] = useState<string | null>(null);
   const [isSender, setIsSender] = useState(false);
 
@@ -38,11 +47,72 @@ const Both: React.FC = () => {
     type: string;
     lastModified: number;
   } | null>(null);
+  const navigate = useNavigate();
 
   const selectedFile = useRef<HTMLInputElement | null>(null);
 
+  const [myId] = useState(() => generateUserId());
+console.log(myId)
+
+useEffect(() => {
+  if (!socket || !ROOMID) return;
+
+  const payload = {
+    type: "add-me",
+    roomId: ROOMID,
+    userId: myId,
+  };
+  socket.onmessage = async (event: MessageEvent) => {
+    const message = JSON.parse(event.data);
+if(message.type === "join-error") {
+toast.error(message.errorMessage)
+navigate("/")
+return;
+}
+  }
+  const trySendJoin = () => {
+    try {
+      socket.send(JSON.stringify(payload));
+    } catch (err) {
+      console.error("Failed to send join-room:", err);
+    }
+  };
+
+  // If already open, send immediately…
+  if (socket.readyState === WebSocket.OPEN) {
+    trySendJoin();
+  } else {
+    // …otherwise wait for the "open" event
+    const onOpen = () => {
+      trySendJoin();
+      socket.removeEventListener("open", onOpen);
+    };
+    socket.addEventListener("open", onOpen);
+  }
+
+  // you can still return your old cleanup:
+  return () => {
+    socket.send(
+      JSON.stringify({
+        type: "leave-room",
+        roomId: ROOMID,
+        userId: myId,
+      })
+    );
+  };
+}, [socket, ROOMID, myId]);
+
+
+
+
   useEffect(() => {
     if (!socket) return;
+
+ 
+
+
+
+
     peer.current.ondatachannel = (event) => {
       const receiveChannel = event.channel;
       receiveChannel.onmessage = (event) => {
@@ -79,8 +149,15 @@ const Both: React.FC = () => {
       };
     };
 
+
+
     socket.onmessage = async (event: MessageEvent) => {
       const message = JSON.parse(event.data);
+if(message.type === "join-error") {
+toast.error(message.errorMessage)
+navigate("/")
+return;
+}
 
       if (message.type === "ready") {
         // console.log("Peer is ready to connect:", message.peerId);
@@ -129,6 +206,7 @@ const Both: React.FC = () => {
         // console.log("File details:", fileDetails.current);
       }
     };
+   
   }, [socket]);
 
   const setupDataChannel = () => {
