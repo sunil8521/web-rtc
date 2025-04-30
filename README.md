@@ -36,4 +36,6 @@ This project is a simple peer-to-peer (P2P) file sharing app built using **TypeS
 
 ## 🎥 Demo Video
 
-[Download and Watch Demo Video](./demo.mp4)
+## 🎥 Demo Video
+
+[Watch the Demo on YouTube](https://www.youtube.com/watch?v=O1LOIiY6pwA)
