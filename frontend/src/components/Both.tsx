@@ -56,7 +56,7 @@ const Both: React.FC = () => {
   const selectedFile = useRef<HTMLInputElement | null>(null);
 
   const myId = getUserId();
-  // console.log("myId", myId);
+  console.log("myId", myId);
 
 
   useEffect(() => {

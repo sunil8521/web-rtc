@@ -2,8 +2,6 @@ import { WebSocketServer, WebSocket } from "ws";
 const wss = new WebSocketServer({ port: 3000 });
 
 type PeerT = Record<string, WebSocket>;
-
-// type peers = {[string]:PeerT};
 const rooms: Map<string, PeerT> = new Map();
 
 wss.on("connection", (ws: WebSocket) => {
@@ -13,8 +11,7 @@ wss.on("connection", (ws: WebSocket) => {
     const data = JSON.parse(message);
 
     if (data.type == "create-room") {
-      // userId = data.userId;
-      // rooms.set(data.roomId, { [userId!]: ws });
+
       rooms.set(data.roomId, {});
       ws.send(
         JSON.stringify({
@@ -22,14 +19,13 @@ wss.on("connection", (ws: WebSocket) => {
           roomId: data.roomId,
         })
       );
-      // console.log(data);
     } else if (data.type == "join-room") {
-      // userId = data.userId;
-
       if (rooms.has(data.roomId)) {
         const room = rooms.get(data.roomId);
         if (room) {
           if (Object.keys(room).length == 2) {
+
+
             ws.send(
               JSON.stringify({
                 type: "join-error",
@@ -37,8 +33,6 @@ wss.on("connection", (ws: WebSocket) => {
               })
             );
           } else {
-
-            // room[userId!] = ws;
             ws.send(
               JSON.stringify({
                 type: "join-success",
@@ -65,6 +59,9 @@ wss.on("connection", (ws: WebSocket) => {
         );
       } else {
         const room = rooms.get(data.roomId);
+if (room![data.userId]) {
+            delete room![data.userId];
+          }
 
         if (Object.keys(room!).length >= 2) {
           ws.send(
@@ -75,9 +72,9 @@ wss.on("connection", (ws: WebSocket) => {
           );
         } else {
 
-          if (room![data.userId]) {
-            delete room![data.userId];
-          }
+          // if (room![data.userId]) {
+          //   delete room![data.userId];
+          // }
           userId = data.userId;
           room![data.userId] = ws;
 
@@ -111,29 +108,19 @@ wss.on("connection", (ws: WebSocket) => {
       rooms.get(data.roomId)![data.to].send(JSON.stringify({ ...data, to: userId }));
     }
 
-    // if (data.type === "join") {
-    //   userId = data.id;
-      // peers[userId!] = ws;
-
-      // const peerIds = Object.keys(peers);
-      //   if (peerIds.length === 2) {
-      //     peerIds.forEach((id) => {
-      //       peers[id].send(
-      //         JSON.stringify({
-      //           type: "ready",
-      //           peerId: peerIds.find((p) => p !== id),
-      //         })
-      //       );
-      //     });
-      //   }
-      // } else if (["offer", "answer", "ice-candidate","file-details"].includes(data.type)) {
-      //   peers[data.to].send(JSON.stringify({ ...data, to: userId }));
-    // }
+  
   });
 
   ws.on("close", () => {
     if (userId) {
-      // delete peers[userId];
+      const room = Array.from(rooms.values()).find((room) => room[userId]);
+      if (room) {
+        delete room[userId];
+        if (Object.keys(room).length === 0) {
+          rooms.delete(Array.from(rooms.keys()).find((key) => rooms.get(key) === room)!);
+        }
+      }
     }
+   
   });
 });
