@@ -3,7 +3,7 @@ const wss = new WebSocketServer({ port: 3000 });
 
 type PeerT = Record<string, WebSocket>;
 const rooms: Map<string, PeerT> = new Map();
-
+console.log(rooms.size);
 wss.on("connection", (ws: WebSocket) => {
   console.log("New client connected");
   let userId: undefined | string;
@@ -23,6 +23,7 @@ wss.on("connection", (ws: WebSocket) => {
     } else if (data.type == "join-room") {
       if (rooms.has(data.roomId)) {
         const room = rooms.get(data.roomId);
+        
         if (room) {
           if (Object.keys(room).length == 2) {
 
@@ -113,13 +114,14 @@ if (room![data.userId]) {
   });
 
   ws.on("close", () => {
+    console.log("Client disconnected");
     if (userId) {
-      const room = Array.from(rooms.values()).find((room) => room[userId!]);
-      if (room) {
-        delete room[userId];
-        if (Object.keys(room).length === 0) {
-          rooms.delete(Array.from(rooms.keys()).find((key) => rooms.get(key) === room)!);
-        }
+      const roomEntry = Array.from(rooms.entries()).find(([_, room]) => room[userId!]);
+      if (roomEntry) {
+      const [roomId, room] = roomEntry;
+      if (Object.keys(room).length === 0) {
+        rooms.delete(roomId);
+      }
       }
     }
    
