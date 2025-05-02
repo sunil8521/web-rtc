@@ -5,6 +5,7 @@ type PeerT = Record<string, WebSocket>;
 const rooms: Map<string, PeerT> = new Map();
 
 wss.on("connection", (ws: WebSocket) => {
+  console.log("New client connected");
   let userId: undefined | string;
 
   ws.on("message", (message: string) => {

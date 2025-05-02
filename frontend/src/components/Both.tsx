@@ -216,7 +216,7 @@ const Both: React.FC = () => {
         setPeerId(message.peerId);
       } else if (message.type === "offer") {
 
-        peer.current.onicecandidate = (event) => {
+        peer.current!.onicecandidate = (event) => {
           if (event.candidate) {
             socket.send(
               JSON.stringify({
@@ -229,10 +229,10 @@ const Both: React.FC = () => {
           }
         };
 
-        await peer.current.setRemoteDescription(message.offer);
+        await peer.current!.setRemoteDescription(message.offer);
 
-        const answer = await peer.current.createAnswer();
-        await peer.current.setLocalDescription(answer);
+        const answer = await peer.current!.createAnswer();
+        await peer.current!.setLocalDescription(answer);
 
         console.log("Sending answer to", message.to);
         socket.send(
@@ -245,19 +245,19 @@ const Both: React.FC = () => {
         );
       } else if (message.type === "answer") {
         console.log("Received answer from", message.to);
-        await peer.current.setRemoteDescription(message.answer);
+        await peer.current!.setRemoteDescription(message.answer);
 
         // Process any queued ICE candidates
         iceQueue.current.forEach(async (candidate) => {
-          await peer.current.addIceCandidate(new RTCIceCandidate(candidate));
+          await peer.current!.addIceCandidate(new RTCIceCandidate(candidate));
         });
         iceQueue.current = [];
       } else if (message.type === "ice-candidate") {
         console.log("Received ICE candidate from", message.to);
 
-        if (peer.current.remoteDescription) {
+        if (peer.current!.remoteDescription) {
           // console.log("add ice candidate to peer");
-          await peer.current.addIceCandidate(message.candidate);
+          await peer.current!.addIceCandidate(message.candidate);
         } else {
           // console.log("add to queue");
           iceQueue.current.push(message.candidate);
@@ -313,12 +313,12 @@ const Both: React.FC = () => {
     }
 
     setIsSender(true);
-    dataChannel.current = peer.current.createDataChannel("fileTransfer");
+    dataChannel.current = peer.current!.createDataChannel("fileTransfer");
     dataChannel.current.binaryType = "arraybuffer";
 
     setupDataChannel();
 
-    peer.current.onicecandidate = (event) => {
+    peer.current!.onicecandidate = (event) => {
       if (event.candidate) {
         socket!.send(
           JSON.stringify({
@@ -333,8 +333,8 @@ const Both: React.FC = () => {
 
     // Create and send offer
     try {
-      const offer = await peer.current.createOffer();
-      await peer.current.setLocalDescription(offer);
+      const offer = await peer.current!.createOffer();
+      await peer.current!.setLocalDescription(offer);
       socket!.send(
         JSON.stringify({ roomId: ROOMID, type: "offer", offer, to: peerId })
       );
@@ -367,7 +367,9 @@ const Both: React.FC = () => {
     reader.onerror = (er) => console.error("Error reading file:", er);
 
     reader.onload = async (e) => {
-      if (e.target?.result && dataChannel.current?.readyState === "open") {
+      const result = e.target?.result;
+
+      if (result instanceof ArrayBuffer&& dataChannel.current?.readyState === "open") {
         if (
           dataChannel.current.bufferedAmount >
           dataChannel.current.bufferedAmountLowThreshold
@@ -383,11 +385,13 @@ const Both: React.FC = () => {
             dataChannel.current?.addEventListener("bufferedamountlow", handler);
           });
         }
-        dataChannel.current.send(e.target.result); // Indicate file transfer is complete
-        console.log("Sent chunk:", e.target.result.byteLength);
-        offset += e.target.result.byteLength;
-        setUploadProgress(Math.floor((offset / file.current.size) * 100));
-        if (offset < file.current.size) {
+        const chunk = result;
+
+        dataChannel.current.send(chunk);
+        console.log("Sent chunk:", chunk.byteLength);
+        offset += chunk.byteLength;
+        setUploadProgress(Math.floor((offset / file.current!.size) * 100));
+        if (offset < file.current!.size) {
           readSlice(offset);
         } else {
           selectedFile.current!.value = "";
@@ -406,8 +410,8 @@ const Both: React.FC = () => {
       }
     }; //end onload
 
-    const readSlice = (o: number) => {
-      const slice = file.current?.slice(offset, o + chunkSize);
+    const readSlice = (o: number):void => {
+      const slice = file.current!.slice(offset, o + chunkSize);
       reader.readAsArrayBuffer(slice);
     };
     readSlice(0);

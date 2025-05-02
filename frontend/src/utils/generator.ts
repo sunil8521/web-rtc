@@ -19,7 +19,8 @@ export function clearUserId(): void {
 
   
   function generateRoomIdWithLetters(length = 8): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    // const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     let roomId = '';
     for (let i = 0; i < length; i++) {
       roomId += chars.charAt(Math.floor(Math.random() * chars.length));
