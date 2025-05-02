@@ -113,7 +113,7 @@ if (room![data.userId]) {
 
   ws.on("close", () => {
     if (userId) {
-      const room = Array.from(rooms.values()).find((room) => room[userId]);
+      const room = Array.from(rooms.values()).find((room) => room[userId!]);
       if (room) {
         delete room[userId];
         if (Object.keys(room).length === 0) {
