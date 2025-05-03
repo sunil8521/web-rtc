@@ -12,7 +12,7 @@ const Both: React.FC = () => {
   const { ROOMID } = useParams<{ ROOMID: string }>();
 
   const [peerId, setPeerId] = useState<string | null>(null);
-  const [isSender, setIsSender] = useState(false);
+  // const [isSender, setIsSender] = useState(false);
 
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -31,7 +31,6 @@ const Both: React.FC = () => {
   //   })
   // );
   const peer = useRef<RTCPeerConnection | null>(null);
-
 
   const dataChannel = useRef<RTCDataChannel | null>(null);
   const file = useRef<File | null>(null);
@@ -56,8 +55,7 @@ const Both: React.FC = () => {
   const selectedFile = useRef<HTMLInputElement | null>(null);
 
   const myId = getUserId();
-  console.log("myId", myId);
-
+  // console.log("myId", myId);
 
   useEffect(() => {
     const pc = new RTCPeerConnection({
@@ -72,21 +70,6 @@ const Both: React.FC = () => {
     });
     peer.current = pc;
 
-    // send every ice candidate
-    // pc.onicecandidate = (evt) => {
-    //   if (evt.candidate && peerId) {
-    //     socket.send(
-    //       JSON.stringify({
-    //         type: "ice-candidate",
-    //         candidate: evt.candidate,
-    //         to: peerId,
-    //         roomId: ROOMID,
-    //       })
-    //     );
-    //   }
-    // };
-
-    // cleanup: close pc + datachannel
     return () => {
       pc.close();
       dataChannel.current?.close();
@@ -97,6 +80,84 @@ const Both: React.FC = () => {
 
   useEffect(() => {
     if (!socket || !ROOMID) return;
+    const handleWS = async (event: MessageEvent) => {
+      const message = JSON.parse(event.data);
+
+      switch (message.type) {
+        case "join-error":
+          toast.error(message.errorMessage);
+          navigate("/");
+          break;
+        case "ready":
+          console.log("peer is ready!", message.peerId);
+          setPeerId(message.peerId);
+          break;
+        case "offer": {
+          peer.current!.onicecandidate = (event) => {
+            if (event.candidate) {
+              socket.send(
+                JSON.stringify({
+                  roomId: ROOMID,
+                  type: "ice-candidate",
+                  candidate: event.candidate,
+                  to: message.to,
+                })
+              );
+            }
+          };
+
+          await peer.current!.setRemoteDescription(message.offer);
+          const answer = await peer.current!.createAnswer();
+          await peer.current!.setLocalDescription(answer);
+
+          console.log("Sending answer to", message.to);
+          socket.send(
+            JSON.stringify({
+              roomId: ROOMID,
+              type: "answer",
+              answer,
+              to: message.to,
+            })
+          );
+          break;
+        }
+
+        case "answer":
+          console.log("Received answer from", message.to);
+          await peer.current!.setRemoteDescription(message.answer);
+
+          // Process any queued ICE candidates
+          iceQueue.current.forEach(async (candidate) => {
+            await peer.current!.addIceCandidate(new RTCIceCandidate(candidate));
+          });
+          iceQueue.current = [];
+
+          break;
+
+          case "ice-candidate":
+
+            console.log("Received ICE candidate from", message.to);
+    
+            if (peer.current!.remoteDescription) {
+              // console.log("add ice candidate to peer");
+              await peer.current!.addIceCandidate(message.candidate);
+            } else {
+              // console.log("add to queue");
+              iceQueue.current.push(message.candidate);
+            }
+            break;
+
+            case "file-details":
+              fileDetails.current = message.details;
+
+              break;
+
+
+
+      }
+    };
+
+    socket.addEventListener("message", handleWS);
 
     const payload = {
       type: "add-me",
@@ -104,62 +165,37 @@ const Both: React.FC = () => {
       userId: myId,
     };
 
-    const trySendJoin = () => {
-      try {
-        socket.send(JSON.stringify(payload));
-        socket.onmessage = async (event: MessageEvent) => {
-          const message = JSON.parse(event.data);
-          if (message.type === "join-error") {
-            toast.error(message.errorMessage);
-            navigate("/");
-            return;
-          }
-        };
-      } catch (err) {
-        console.error("Failed to send join-room:", err);
-      }
-    };
-
-    // If already open, send immediately…
     if (socket.readyState === WebSocket.OPEN) {
-      trySendJoin();
+      socket.send(JSON.stringify(payload));
     } else {
-      // …otherwise wait for the "open" event
-      const onOpen = () => {
-        trySendJoin();
-        socket.removeEventListener("open", onOpen);
-      };
-      socket.addEventListener("open", onOpen);
+      socket.addEventListener(
+        "open",
+        () => socket.send(JSON.stringify(payload)),
+        { once: true }
+      );
     }
 
-    // you can still return your old cleanup:
     return () => {
       socket.send(
-        JSON.stringify({
-          type: "leave-room",
-          roomId: ROOMID,
-          userId: myId,
-        })
+        JSON.stringify({ type: "leave-room", roomId: ROOMID, userId: myId })
       );
+      socket.removeEventListener("message", handleWS);
       clearUserId();
-//       peer.current.close();
-// peer.current.onicecandidate = null;
-
+      clearUserId();
     };
   }, [socket, ROOMID, myId, navigate]);
 
   useEffect(() => {
     if (!socket) return;
     if (!peer.current) return;
-// peer.current.onClose
+    // peer.current.onClose
 
     peer.current.ondatachannel = (event) => {
       const receiveChannel = event.channel;
 
       receiveChannel.binaryType = "arraybuffer";
 
-      receiveChannel.onmessage = async(event) => {
-
+      receiveChannel.onmessage = async (event) => {
         let buf: ArrayBuffer;
         if (event.data instanceof Blob) {
           buf = await event.data.arrayBuffer();
@@ -167,24 +203,14 @@ const Both: React.FC = () => {
           buf = event.data;
         }
 
-
-
         reciveSizeRef.current = reciveSizeRef.current + buf.byteLength;
         console.log("reciveSizeRef", reciveSizeRef.current);
-
-
 
         reciveArry.current.push(buf);
 
         if (reciveSizeRef.current == fileDetails.current?.size) {
           const received = new Blob(reciveArry.current);
           const download = URL.createObjectURL(received);
-
-          // const anchor = document.createElement("a");
-          // anchor.href = download;
-          // anchor.download = fileDetails.current?.name;
-          // anchor.textContent = fileDetails.current?.name;
-          // document.querySelector("#containerRef")?.appendChild(anchor);
 
           setReciveFile((e) => [
             ...e,
@@ -208,66 +234,67 @@ const Both: React.FC = () => {
       };
     };
 
-    socket.onmessage = async (event: MessageEvent) => {
-      const message = JSON.parse(event.data);
+    // socket.onmessage = async (event: MessageEvent) => {
+    //   const message = JSON.parse(event.data);
 
-      if (message.type === "ready") {
-        console.log("Peer is ready to connect:", message.peerId);
-        setPeerId(message.peerId);
-      } else if (message.type === "offer") {
+    //   if (message.type === "ready") {
+    //     console.log("Peer is ready to connect:", message.peerId);
+    //     setPeerId(message.peerId);
+    //   } else if (message.type === "offer") {
+    //     peer.current!.onicecandidate = (event) => {
+    //       if (event.candidate) {
+    //         socket.send(
+    //           JSON.stringify({
+    //             roomId: ROOMID,
+    //             type: "ice-candidate",
+    //             candidate: event.candidate,
+    //             to: message.to,
+    //           })
+    //         );
+    //       }
+    //     };
 
-        peer.current!.onicecandidate = (event) => {
-          if (event.candidate) {
-            socket.send(
-              JSON.stringify({
-                roomId: ROOMID,
-                type: "ice-candidate",
-                candidate: event.candidate,
-                to: message.to,
-              })
-            );
-          }
-        };
+    //     await peer.current!.setRemoteDescription(message.offer);
+    //     const answer = await peer.current!.createAnswer();
+    //     await peer.current!.setLocalDescription(answer);
 
-        await peer.current!.setRemoteDescription(message.offer);
+    //     console.log("Sending answer to", message.to);
+    //     socket.send(
+    //       JSON.stringify({
+    //         roomId: ROOMID,
+    //         type: "answer",
+    //         answer,
+    //         to: message.to,
+    //       })
+    //     );
+    //   } else if (message.type === "answer") {
+    //     console.log("Received answer from", message.to);
+    //     await peer.current!.setRemoteDescription(message.answer);
 
-        const answer = await peer.current!.createAnswer();
-        await peer.current!.setLocalDescription(answer);
+    //     // Process any queued ICE candidates
+    //     iceQueue.current.forEach(async (candidate) => {
+    //       await peer.current!.addIceCandidate(new RTCIceCandidate(candidate));
+    //     });
+    //     iceQueue.current = [];
+    //   } else if (message.type === "ice-candidate") {
+    //     console.log("Received ICE candidate from", message.to);
 
-        console.log("Sending answer to", message.to);
-        socket.send(
-          JSON.stringify({
-            roomId: ROOMID,
-            type: "answer",
-            answer,
-            to: message.to,
-          })
-        );
-      } else if (message.type === "answer") {
-        console.log("Received answer from", message.to);
-        await peer.current!.setRemoteDescription(message.answer);
-
-        // Process any queued ICE candidates
-        iceQueue.current.forEach(async (candidate) => {
-          await peer.current!.addIceCandidate(new RTCIceCandidate(candidate));
-        });
-        iceQueue.current = [];
-      } else if (message.type === "ice-candidate") {
-        console.log("Received ICE candidate from", message.to);
-
-        if (peer.current!.remoteDescription) {
-          // console.log("add ice candidate to peer");
-          await peer.current!.addIceCandidate(message.candidate);
-        } else {
-          // console.log("add to queue");
-          iceQueue.current.push(message.candidate);
-        }
-      } else if (message.type === "file-details") {
-        fileDetails.current = message.details;
-        // console.log("File details:", fileDetails.current);
-      }
-    };
-  }, [socket]);
+    //     if (peer.current!.remoteDescription) {
+    //       // console.log("add ice candidate to peer");
+    //       await peer.current!.addIceCandidate(message.candidate);
+    //     } else {
+    //       // console.log("add to queue");
+    //       iceQueue.current.push(message.candidate);
+    //     }
+    //   } else if (message.type === "file-details") {
+    //     fileDetails.current = message.details;
+    //     // console.log("File details:", fileDetails.current);
+    //   }
+    // };
+  
+  
+  
+  }, [socket, ROOMID]);
 
   const setupDataChannel = () => {
     if (!dataChannel.current) return;
@@ -307,12 +334,12 @@ const Both: React.FC = () => {
       })
     );
 
-    if (isSender) {
-      console.log("Already a sender, no need to set up again.");
-      return;
-    }
+    // if (isSender) {
+    //   console.log("Already a sender, no need to set up again.");
+    //   return;
+    // }
 
-    setIsSender(true);
+    // setIsSender(true);
     dataChannel.current = peer.current!.createDataChannel("fileTransfer");
     dataChannel.current.binaryType = "arraybuffer";
 
@@ -369,7 +396,10 @@ const Both: React.FC = () => {
     reader.onload = async (e) => {
       const result = e.target?.result;
 
-      if (result instanceof ArrayBuffer&& dataChannel.current?.readyState === "open") {
+      if (
+        result instanceof ArrayBuffer &&
+        dataChannel.current?.readyState === "open"
+      ) {
         if (
           dataChannel.current.bufferedAmount >
           dataChannel.current.bufferedAmountLowThreshold
@@ -402,7 +432,7 @@ const Both: React.FC = () => {
             // peer.current.onicecandidate = null;
             dataChannel.current.close();
             dataChannel.current = null;
-            setIsSender(false);
+            // setIsSender(false);
             setIsUploading(false);
             setUploadComplete(true);
           }
@@ -410,7 +440,7 @@ const Both: React.FC = () => {
       }
     }; //end onload
 
-    const readSlice = (o: number):void => {
+    const readSlice = (o: number): void => {
       const slice = file.current!.slice(offset, o + chunkSize);
       reader.readAsArrayBuffer(slice);
     };

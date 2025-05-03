@@ -3,7 +3,6 @@ const wss = new WebSocketServer({ port: 3000 });
 
 type PeerT = Record<string, WebSocket>;
 const rooms: Map<string, PeerT> = new Map();
-console.log(rooms.size);
 wss.on("connection", (ws: WebSocket) => {
   console.log("New client connected");
   let userId: undefined | string;
@@ -21,6 +20,7 @@ wss.on("connection", (ws: WebSocket) => {
         })
       );
     } else if (data.type == "join-room") {
+
       if (rooms.has(data.roomId)) {
         const room = rooms.get(data.roomId);
         
@@ -34,6 +34,7 @@ wss.on("connection", (ws: WebSocket) => {
                 errorMessage: "Room is full. Cannot join more than 2 users.",
               })
             );
+
           } else {
             ws.send(
               JSON.stringify({
@@ -61,10 +62,10 @@ wss.on("connection", (ws: WebSocket) => {
         );
       } else {
         const room = rooms.get(data.roomId);
-if (room![data.userId]) {
+
+          if (room![data.userId]) {
             delete room![data.userId];
           }
-
         if (Object.keys(room!).length >= 2) {
           ws.send(
             JSON.stringify({
@@ -73,7 +74,6 @@ if (room![data.userId]) {
             })
           );
         } else {
-
           // if (room![data.userId]) {
           //   delete room![data.userId];
           // }
@@ -81,9 +81,11 @@ if (room![data.userId]) {
           room![data.userId] = ws;
 
           const updatedIds = Object.keys(room!);
+
+
           if (updatedIds.length === 2) {
             updatedIds.forEach((id) => {
-              const otherId = updatedIds.find((x) => x !== id)!;
+const otherId = updatedIds.find((x) => x !== id)!;
               room![id].send(JSON.stringify({
                 type: "ready",
                 peerId: otherId
