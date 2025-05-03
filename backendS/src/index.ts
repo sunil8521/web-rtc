@@ -108,7 +108,7 @@ const otherId = updatedIds.find((x) => x !== id)!;
         }
       }
     } 
-    else if (["offer", "answer", "ice-candidate","file-details"].includes(data.type)) {
+    else if (["offer", "answer", "ice-candidate","file-details","transfer-start","transfer-stop"].includes(data.type)) {
       rooms.get(data.roomId)![data.to].send(JSON.stringify({ ...data, to: userId }));
     }
 

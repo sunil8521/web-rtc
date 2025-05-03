@@ -7,6 +7,8 @@ import { getUserId, clearUserId } from "../utils/generator";
 import { useParams } from "react-router-dom";
 import { useNavigate } from "react-router-dom"; // important for redirect
 
+
+
 const Both: React.FC = () => {
   const socket = useAtomValue(socketAtom);
   const { ROOMID } = useParams<{ ROOMID: string }>();
@@ -17,7 +19,7 @@ const Both: React.FC = () => {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [uploadComplete, setUploadComplete] = useState<boolean>(false);
-
+  const [receiveProgress,setReceiveProgress]=useState<number>(0);
   // const peer = useRef<RTCPeerConnection>(
   //   new RTCPeerConnection({
   //     iceServers: [
@@ -134,26 +136,40 @@ const Both: React.FC = () => {
 
           break;
 
-          case "ice-candidate":
+        case "ice-candidate":
+          console.log("Received ICE candidate from", message.to);
 
-            console.log("Received ICE candidate from", message.to);
-    
-            if (peer.current!.remoteDescription) {
-              // console.log("add ice candidate to peer");
-              await peer.current!.addIceCandidate(message.candidate);
-            } else {
-              // console.log("add to queue");
-              iceQueue.current.push(message.candidate);
-            }
-            break;
+          if (peer.current!.remoteDescription) {
+            // console.log("add ice candidate to peer");
+            await peer.current!.addIceCandidate(message.candidate);
+          } else {
+            // console.log("add to queue");
+            iceQueue.current.push(message.candidate);
+          }
+          break;
 
-            case "file-details":
-              fileDetails.current = message.details;
+        case "file-details":
+          fileDetails.current = message.details;
 
-              break;
+          break;
 
+        case "transfer-start":
+          toast(`Someone has started sharing a file...`, {
+            icon: "📤",
+            duration: 5000, // 5 seconds
+          });
+          break;
 
+        case "transfer-stop":
+          toast(`Someone has stopped sharing the file.`, {
+            icon: "📁",
+            duration: 5000,
+          });
+          reciveSizeRef.current = 0;
+          reciveArry.current = [];
+          setReceiveProgress(0)
 
+          break;
       }
     };
 
@@ -192,7 +208,7 @@ const Both: React.FC = () => {
 
     peer.current.ondatachannel = (event) => {
       const receiveChannel = event.channel;
-
+      let offset=0;
       receiveChannel.binaryType = "arraybuffer";
 
       receiveChannel.onmessage = async (event) => {
@@ -204,6 +220,9 @@ const Both: React.FC = () => {
         }
 
         reciveSizeRef.current = reciveSizeRef.current + buf.byteLength;
+        offset+=buf.byteLength;
+        setReceiveProgress(Math.floor(( offset/ fileDetails.current!.size) * 100));
+
         console.log("reciveSizeRef", reciveSizeRef.current);
 
         reciveArry.current.push(buf);
@@ -219,6 +238,7 @@ const Both: React.FC = () => {
 
           reciveSizeRef.current = 0;
           reciveArry.current = [];
+          setReceiveProgress(0)
         }
       };
 
@@ -291,9 +311,6 @@ const Both: React.FC = () => {
     //     // console.log("File details:", fileDetails.current);
     //   }
     // };
-  
-  
-  
   }, [socket, ROOMID]);
 
   const setupDataChannel = () => {
@@ -315,10 +332,20 @@ const Both: React.FC = () => {
 
   const selectFile = async (selectedFile: File) => {
     if (!peerId) {
-      toast.error("There is no other peer to send");
+      toast.error(
+        "No other peer is available to receive the file. Please share this room code with another user or join an existing room to start sharing.",
+        {
+          duration: 8000, // 8 seconds
+          // close 'X' button
+        }
+      );
 
       return;
     }
+    setShowFile(selectedFile);
+    setUploadProgress(0);
+    setUploadComplete(false);
+
     file.current = selectedFile;
     socket!.send(
       JSON.stringify({
@@ -334,12 +361,6 @@ const Both: React.FC = () => {
       })
     );
 
-    // if (isSender) {
-    //   console.log("Already a sender, no need to set up again.");
-    //   return;
-    // }
-
-    // setIsSender(true);
     dataChannel.current = peer.current!.createDataChannel("fileTransfer");
     dataChannel.current.binaryType = "arraybuffer";
 
@@ -392,7 +413,14 @@ const Both: React.FC = () => {
     let offset = 0;
     reader.onabort = (event) => console.log("File reading aborted:", event);
     reader.onerror = (er) => console.error("Error reading file:", er);
-
+    socket!.send(
+      JSON.stringify({
+        type: "transfer-start",
+        roomId: ROOMID,
+        details: {},
+        to: peerId,
+      })
+    );
     reader.onload = async (e) => {
       const result = e.target?.result;
 
@@ -418,6 +446,7 @@ const Both: React.FC = () => {
         const chunk = result;
 
         dataChannel.current.send(chunk);
+
         console.log("Sent chunk:", chunk.byteLength);
         offset += chunk.byteLength;
         setUploadProgress(Math.floor((offset / file.current!.size) * 100));
@@ -428,6 +457,7 @@ const Both: React.FC = () => {
           file.current = null;
           setShowFile(null);
           console.log("File transfer complete!🚀");
+
           if (dataChannel.current) {
             // peer.current.onicecandidate = null;
             dataChannel.current.close();
@@ -447,6 +477,27 @@ const Both: React.FC = () => {
     readSlice(0);
   };
 
+  const cancelSendFileHandle = () => {
+    if (dataChannel.current) {
+      // peer.current.onicecandidate = null;
+      setShowFile(null);
+      setUploadProgress(0);
+      setUploadComplete(false);
+      dataChannel.current.close();
+      dataChannel.current = null;
+      // setIsSender(false);
+      setIsUploading(false);
+      setUploadComplete(true);
+      socket!.send(
+        JSON.stringify({
+          type: "transfer-stop",
+          roomId: ROOMID,
+          details: {},
+          to: peerId,
+        })
+      );
+    }
+  };
   // const sendFileHandle = async () => {
   //   if (!file.current || !dataChannel.current) return;
 
@@ -537,9 +588,6 @@ const Both: React.FC = () => {
               const selected = e.target.files?.[0];
               if (selected) {
                 selectFile(selected);
-                setShowFile(selected);
-                setUploadProgress(0);
-                setUploadComplete(false);
               }
             }}
             className="hidden"
@@ -613,6 +661,7 @@ const Both: React.FC = () => {
                 {uploadProgress}%
               </span>
             </div>
+
             <div className="h-1 bg-[#2a2a2a] rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-300 ease-out ${
@@ -627,12 +676,22 @@ const Both: React.FC = () => {
         <div className="flex gap-3">
           <button
             onClick={sendFileHandle}
-            disabled={!showFile}
+            disabled={!showFile || uploadProgress > 0}
             className="flex-1 bg-[#3b82f6] text-white py-3 rounded-lg text-sm font-medium transition-all 
                 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#2563eb] focus:outline-none
                 focus:ring-2 focus:ring-[#3b82f6] focus:ring-opacity-50"
           >
             {isUploading ? "Sending..." : "Send File"}
+          </button>
+
+          <button
+            onClick={cancelSendFileHandle}
+            disabled={!(uploadProgress > 0) || !showFile}
+            className="flex-1 bg-red-500 text-white py-3 rounded-lg text-sm font-medium transition-all 
+             disabled:opacity-50 disabled:cursor-not-allowed hover:bg-red-600 focus:outline-none
+             focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+          >
+            Cancel
           </button>
         </div>
 
@@ -641,9 +700,45 @@ const Both: React.FC = () => {
           className="w-full max-w-md mx-auto mt-6 p-4 rounded-2xl shadow-lg bg-white dark:bg-zinc-900"
         >
           {/* Heading */}
-          <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100 mb-4">
-            Received Files
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+  <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">
+    Received Files
+  </h2>
+
+  {
+    
+ 
+  <div className="relative w-10 h-10">
+    <svg className="w-full h-full rotate-[-90deg]" viewBox="0 0 36 36">
+      <circle
+        className="text-gray-300"
+        strokeWidth="3"
+        stroke="currentColor"
+        fill="transparent"
+        r="16"
+        cx="18"
+        cy="18"
+      />
+      <circle
+        className="text-purple-500"
+        strokeWidth="3"
+        strokeDasharray="100"
+        strokeDashoffset={100 - receiveProgress}
+        strokeLinecap="round"
+        stroke="currentColor"
+        fill="transparent"
+        r="16"
+        cx="18"
+        cy="18"
+      />
+    </svg>
+    <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-zinc-800 dark:text-white">
+      {receiveProgress}%
+    </div>
+  </div>
+ }
+</div>
+
 
           {reciveFile.map((item, index) => {
             return (
